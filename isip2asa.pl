@@ -61,6 +61,11 @@ sub GetData($){
 	return @arr;
 }
 
+if(!-e $curl){
+	print "Curl missing\n";
+	exit;
+}
+
 print "object-group network Iceland\n";
 my @arr = GetData($url);
 foreach(@arr){
