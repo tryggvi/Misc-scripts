@@ -1,0 +1,137 @@
+#!/usr/bin/perl
+# 
+# This script will connect to defined servers via SSH and run virsh list.
+# Information collected is shown in a simple view where you can see where each vm is running
+#
+# Author: Tryggvi Farestveit <tryggvi@ok.is>
+#
+# License: GPLv2
+
+my $version = "0.2";
+
+use strict;
+
+# Settings
+my $virsh = "/usr/bin/virsh";
+
+my @vservers = (
+	"rs-xen-01",
+	"rs-xen-02"
+);
+
+### Do not edit below ###
+my @sum;
+for(my $x=0; $x < scalar(@vservers); $x++){
+	my @vms = GetRunning($vservers[$x]);
+	@sum = (@sum, @vms);
+
+}
+
+format HEAD =
+ID    Hostname                 Running on       State
+=======================================================
+.
+write(HEAD);
+
+my %running;
+for(my $z=0; $z < scalar(@sum); $z++){
+	my $hostname = $sum[$z]{hostname};
+	my $state = $sum[$z]{state};
+
+	if($state ne "shut"){
+		$running{$hostname} = 1;
+	} elsif ($running{$hostname}){
+		# ignore
+		next;
+	} else {
+		$running{$hostname} = 0;
+	}
+
+		
+}
+
+my %done;
+for(my $z=0; $z < scalar(@sum); $z++){
+	my $id = $sum[$z]{id};
+	my $hostname = $sum[$z]{hostname};
+	my $hostname_lc = $sum[$z]{hostname_lc};
+	my $vserver = $sum[$z]{vserver};
+	my $state = $sum[$z]{state};
+
+	if($done{$hostname}){
+		next;
+	}
+
+	if($running{$hostname} && $state ne "shut"){
+		$done{$hostname} = 1;
+	} elsif(!$running{$hostname} && $state eq "shut"){
+		$vserver = "";
+		$done{$hostname} = 1;
+	} else {
+		next;
+	}
+
+format =
+@<<<  @<<<<<<<<<<<<<<<<<<<<<<< @<<<<<<<<<<<<<<< @<<<<<<<<<<< 
+$id $hostname               $vserver          $state
+.
+write;
+
+}
+
+sub GetHostname(){
+	open(H, "/bin/hostname|");
+	my $hostname = <H>;
+	close(H);
+	chomp($hostname);
+	return $hostname;
+}
+
+sub GetCmd($){
+	my ($vserver) = @_;
+
+	my $cmd = "$virsh list --all";
+	if($vserver ne GetHostname()){
+		# SSH
+		$cmd = "ssh $vserver \"$cmd\"";
+	}
+	return $cmd;
+}
+
+sub GetRunning($){
+	my ($vserver) = @_;
+
+	my $cmd = GetCmd($vserver);
+
+	open(V, "$cmd|");
+	my @vms;
+	my $i=0;
+	my $start=0;
+	while(<V>){
+		chomp($_);
+		split;
+
+		if(!$_[0]){
+			$start=0;
+		}
+
+		if($start){
+			my ($id, $vm, $state) = split;
+			$vms[$i] = ({
+				"id" => $id,
+				"vserver" => $vserver,
+				"hostname" => $vm,
+				"state" => $state,
+				"hostname_lc" => lc($vm)
+			});
+			$i++;
+		}
+
+		if($_[0] eq "0"){
+			$start=1;
+		} 
+
+	}
+	close(V);
+	return @vms;
+}
